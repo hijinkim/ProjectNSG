@@ -13,24 +13,34 @@ from django.db import connection
 from .form import CommentForm
 from django.urls import reverse, reverse_lazy
 
+
 # Create your views here.
 
 def check_session(request):
-    get_session = request.session.get('user')
     login_member = Member()
-    if get_session:
-        login_member = Member.objects.get(memberID=get_session)
-    else:
+    try:
+        get_session = request.session.get('user')
+        if get_session:
+            login_member = Member.objects.get(memberID=get_session)
+        else:
+            try:
+                login_member = Member.objects.get(memberID='guest')
+            except:
+                login_member = Member.objects.create(memberID='guest', memberPW='guest', memberName='guest',
+                                                     memberEmail='guest', memberAge='1900-01-01', authority=False)
+    except:
         try:
             login_member = Member.objects.get(memberID='guest')
         except:
-            login_member = Member.objects.create(memberID='guest', memberPW='guest', memberName='guest', memberEmail='guest', memberAge='1900-01-01', authority=False)
+            login_member = Member.objects.create(memberID='guest', memberPW='guest', memberName='guest',
+                                                 memberEmail='guest', memberAge='1900-01-01', authority=False)
+    print(login_member)
     return login_member
 
 
 def join_adopter(request):
     if request.method == "GET":
-        return render(request, 'yyApp/adopter.html')
+        return render(request, 'yyApp/adopter.html', {'login_member': check_session(request)})
     elif request.method == "POST":
         memberID = request.POST.get('memberID', None)
         memberPW = request.POST.get('memberPW', None)
@@ -50,7 +60,7 @@ def join_adopter(request):
                                 memberEmail=memberEmail, memberAge=memberAge, adopterHouse=adopterHouse,
                                 adopterAddress=adopterAddress, adopterFamily=adopterFamily, authority=False)
                 member.save()
-                return render(request, 'yyApp/finish_join.html')
+                return render(request, 'yyApp/finish_join.html', {'login_member': check_session(request)})
             else:
                 res_data['error'] = '비밀번호와 비밀번호 확인이 일치하지 않아요'
                 return render(request, 'yyApp/adopter.html', res_data)
@@ -58,7 +68,7 @@ def join_adopter(request):
 
 def join_guardian(request):
     if request.method == "GET":
-        return render(request, 'yyApp/guardian.html')
+        return render(request, 'yyApp/guardian.html', {'login_member': check_session(request)})
     elif request.method == "POST":
         memberID = request.POST.get('memberID', None)
         memberPW = request.POST.get('memberPW', None)
@@ -74,7 +84,7 @@ def join_guardian(request):
                 member = Member(memberID=memberID, memberPW=make_password(memberPW), memberName=memberName,
                                 memberEmail=memberEmail, memberAge=memberAge, authority=True)
                 member.save()
-                return render(request, 'yyApp/finish_join.html', res_data)
+                return render(request, 'yyApp/finish_join.html', {'login_member': check_session(request)})
             else:
                 res_data['error'] = '비밀번호와 비밀번호 확인이 일치하지 않아요'
         return render(request, 'yyApp/guardian.html', res_data)
@@ -110,7 +120,6 @@ def login(request):
 
 def logout(request):
     a = check_session(request)
-    print(a.memberID)
     if request.session['user']:
         del (request.session['user'])
     return redirect('/yyApp')
@@ -123,8 +132,7 @@ def home(request):
         ORDER BY yyApp_Board.id DESC LIMIT 4;
     '''  # Board tbl에서 id와 petimg 가져옴/ petID에 근거하여 Pet tbl를 조인/Board tbl의 id를 내림차순으로 4개만 정렬
     cursor.execute(strSql)
-    result = cursor.fetchall()  # 튜플 형태로 가져옴(board_id, petImage) 
-    print(result)
+    result = cursor.fetchall()  # 튜플 형태로 가져옴(board_id, petImage)
     connection.commit()
     connection.close()
 
@@ -134,8 +142,9 @@ def home(request):
 def save_pet(pet):
     pet.save()
 
+
 def save_comment(comment):
-    comment.save()    
+    comment.save()
 
 
 def write_post(request):
@@ -180,10 +189,12 @@ def write_post(request):
 
         if not title:
             errors.append('제목을 입력하세요.')
-            return render(request, 'yyApp/writepost.html', {'user': request.user, 'errors': errors, 'login_member': check_session(request)})
+            return render(request, 'yyApp/writepost.html',
+                          {'user': request.user, 'errors': errors, 'login_member': check_session(request)})
         if not content:
             errors.append('내용을 입력하세요.')
-            return render(request, 'yyApp/writepost.html', {'user': request.user, 'errors': errors, 'login_member': check_session(request)})
+            return render(request, 'yyApp/writepost.html',
+                          {'user': request.user, 'errors': errors, 'login_member': check_session(request)})
         if not errors:
             pet = Pet(petName=petName, petBirth=petBirth, petSex=petSex, petSize=petSize, petLoc=petLoc,
                       petSpecies=petSpecies,
@@ -211,12 +222,14 @@ def post_detail(request, postID):
     is_check = False
     is_comment_check = False
 
+    check_like_post = post.like.filter(memberID=login_member.memberID).exists()
+
     try:
         if str(post.memberID) == request.session['user']:
             is_check = True
     except KeyError:
         is_check = False
-   
+
     context['post'] = post
     context['pet'] = pet
     context['member'] = member
@@ -224,7 +237,7 @@ def post_detail(request, postID):
     context['is_check'] = is_check
     context['is_comment_check'] = is_comment_check
     context['login_member'] = login_member
-
+    context['check_like_post'] = check_like_post
 
     return render(request, 'yyApp/postdetail.html', context)
 
@@ -237,39 +250,34 @@ def post_delete(request):
     return render(request, "yyApp/finish_delete.html")
 
 
-def comment_write(request, postID) : 
-    post = get_object_or_404(Board, id=postID)      
-    if request.method == 'POST' :
-        member = check_session(request)        
-        date = datetime.date.today().isoformat()        
+def comment_write(request, postID):
+    post = get_object_or_404(Board, id=postID)
+    if request.method == 'POST':
+        member = check_session(request)
+        date = datetime.date.today().isoformat()
         content = request.POST.get('content')
 
-        comment = Comment(memberID = Member.objects.get(memberID=member.memberID),
-        date = date, content=content, postID = Board.objects.get(id=post.id))
+        comment = Comment(memberID=Member.objects.get(memberID=member.memberID),
+                          date=date, content=content, postID=Board.objects.get(id=post.id))
         comment.save()
 
     return redirect(reverse('yyApp:post_detail', args=[post.id]))
 
 
-def comment_delete(request, commentID) :
-    comment = get_object_or_404(Comment, pk=commentID)    
+def comment_delete(request, commentID):
+    comment = get_object_or_404(Comment, pk=commentID)
     post = get_object_or_404(Board, id=comment.postID_id)
     login_member = check_session(request)
 
-    if comment.memberID_id == login_member.memberID :
-        comment.delete()    
+    if comment.memberID_id == login_member.memberID:
+        comment.delete()
 
     return redirect(reverse('yyApp:post_detail', args=[post.id]))
 
-
-
-    # post = get_object_or_404(Board, id=postID)     
+    # post = get_object_or_404(Board, id=postID)
     # comment = get_object_or_404(Comment, id=postID)
     # comment.delete()
     # return redirect(reverse('yyApp:post_detail', args=[post.id]))
-
-
-
 
     # if comment.memberID == Member.objects.get( = request.user.get_username()) :
     #     comment.delete()
@@ -281,7 +289,6 @@ def comment_delete(request, commentID) :
 
     # return redirect(reverse('yyApp:post_detail', args=[post.id]))
 
-
     # comment = Comment.objects.get(pk=pk)
     # board_pk = comment.board.pk
 
@@ -290,16 +297,13 @@ def comment_delete(request, commentID) :
     #     return render(request, 'yyApp/postdetail.html', {'comment' : comment, "auth_error" : "'해당댓글에 대한 삭제 권한이 없습니다.' "})
 
 
-
-
-
-def board_list(request) :
+def board_list(request):
     paginate_by = 9
     context = {}
 
     # 페이지
     context['is_paginated'] = True
-    board_pet_list = Pet.objects.select_related('board').order_by('-id').exclude(board__id=None)    
+    board_pet_list = Pet.objects.select_related('board').order_by('-id').exclude(board__id=None)
 
     paginator = Paginator(board_pet_list, paginate_by)
     page_numbers_range = 10
@@ -308,10 +312,10 @@ def board_list(request) :
 
     # 시작/끝 인덱스 조회
     start_index = int((current_page - 1) / page_numbers_range) * page_numbers_range
-    end_index = start_index + page_numbers_range       
+    end_index = start_index + page_numbers_range
 
     # 현재 페이지가 속한 페이지 그룹의 범위
-    current_page_group_range = paginator.page_range[start_index : end_index]
+    current_page_group_range = paginator.page_range[start_index: end_index]
 
     start_page = paginator.page(current_page_group_range[0])
     end_page = paginator.page(current_page_group_range[-1])
@@ -320,11 +324,11 @@ def board_list(request) :
     has_next_page = end_page.has_next()
 
     context['current_page_group_range'] = current_page_group_range
-    if has_previous_page :
+    if has_previous_page:
         context['has_previous_page'] = has_previous_page
         context['previous_page'] = start_page.previous_page_number
 
-    if has_next_page :
+    if has_next_page:
         context['has_next_page'] = has_next_page
         context['next_page'] = end_page.next_page_number
 
@@ -342,18 +346,14 @@ def board_list(request) :
     context['is_check'] = is_check
     context['login_member'] = login_member
 
-
-
     return render(request, 'yyApp/board_list.html', context)
 
 
-
-
-def board_search(request) :
+def board_search(request):
     paginate_by = 9
     context = {}
 
-    board_pet_list= Pet.objects.select_related('board').order_by('-id').exclude(board__id=None)
+    board_pet_list = Pet.objects.select_related('board').order_by('-id').exclude(board__id=None)
     search_keyword_bar = request.GET.get('q', '')
     search_type = request.GET.get('type', '')
 
@@ -395,11 +395,11 @@ def board_search(request) :
     # else:
     #     messages.error(request, '옵션을 선택하세요.') 
 
-
-    if search_keyword_bar :
+    if search_keyword_bar:
         if search_type == 'all':
             board_pet_list = board_pet_list.filter(
-                Q(board__title__icontains=search_keyword_bar) | Q(board__content__icontains=search_keyword_bar) | Q(board__hashtag__icontains=search_keyword_bar))
+                Q(board__title__icontains=search_keyword_bar) | Q(board__content__icontains=search_keyword_bar) | Q(
+                    board__hashtag__icontains=search_keyword_bar))
         elif search_type == 'title_content':
             board_pet_list = board_pet_list.filter(
                 Q(board__title__icontains=search_keyword_bar) | Q(board__content__icontains=search_keyword_bar))
@@ -408,16 +408,14 @@ def board_search(request) :
         elif search_type == 'content':
             board_pet_list = board_pet_list.filter(board__content__icontains=search_keyword_bar)
         elif search_type == 'hashtag':
-            board_pet_list = board_pet_list.filter(board__hashtag__icontains=search_keyword_bar)  
+            board_pet_list = board_pet_list.filter(board__hashtag__icontains=search_keyword_bar)
 
-    # else:
+            # else:
     #     messages.error(request, '검색어를 입력해주세요.')
-
-
 
     # 페이지
     context['is_paginated'] = True
-   
+
     paginator = Paginator(board_pet_list, paginate_by)
     page_numbers_range = 10
     current_page = int(request.GET.get('page', 1))
@@ -425,10 +423,10 @@ def board_search(request) :
 
     # 시작/끝 인덱스 조회
     start_index = int((current_page - 1) / page_numbers_range) * page_numbers_range
-    end_index = start_index + page_numbers_range       
+    end_index = start_index + page_numbers_range
 
     # 현재 페이지가 속한 페이지 그룹의 범위
-    current_page_group_range = paginator.page_range[start_index : end_index]
+    current_page_group_range = paginator.page_range[start_index: end_index]
 
     start_page = paginator.page(current_page_group_range[0])
     end_page = paginator.page(current_page_group_range[-1])
@@ -437,11 +435,11 @@ def board_search(request) :
     has_next_page = end_page.has_next()
 
     context['current_page_group_range'] = current_page_group_range
-    if has_previous_page :
+    if has_previous_page:
         context['has_previous_page'] = has_previous_page
         context['previous_page'] = start_page.previous_page_number
 
-    if has_next_page :
+    if has_next_page:
         context['has_next_page'] = has_next_page
         context['next_page'] = end_page.next_page_number
 
@@ -459,12 +457,7 @@ def board_search(request) :
     context['is_check'] = is_check
     context['login_member'] = login_member
 
-
-
-
-
     return render(request, 'yyApp/board_search.html', context)
-
 
 
 # class BoardListView(ListView):
@@ -600,10 +593,6 @@ def board_search(request) :
 #         context['board_pet'] = board_pet
 
 
-
-
-
-
 #         # pet_list = Pet.objects.order_by('-id')
 #         # for pet in pet_list:
 #         #     board_list = Board.objects.filter(petID_id=pet.id)
@@ -652,3 +641,14 @@ def modify_adoption(request):
             pet.petAdoption = False
             pet.save()
     return render(request, "yyApp/finish_mod_adoption.html")
+
+
+def like_post(request, postID):
+    post = get_object_or_404(Board, id=postID)
+    login_member = check_session(request)
+    check_like_post = post.like.filter(memberID=login_member.memberID).exists()
+    if check_like_post:
+        post.like.remove(login_member)
+    else:
+        post.like.add(login_member)
+    return redirect(reverse('yyApp:post_detail', args=[post.id]))
